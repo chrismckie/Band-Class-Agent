@@ -1,0 +1,5 @@
+anthropic
+psycopg2-binary
+pandas
+pypdf
+python-dotenv
