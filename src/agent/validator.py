@@ -83,6 +83,32 @@ def _check_sql_safety(sql: str, intent: str, entity: str, params: list) -> list[
                 f"SELECT has {placeholder_count} placeholder(s) but {len(params)} param(s) were provided."
             )
 
+    if intent == "UPDATE":
+        if not sql_upper.lstrip().startswith("UPDATE"):
+            errors.append("Expected an UPDATE statement but the generated SQL does not start with UPDATE.")
+        if "WHERE" not in sql_upper:
+            errors.append("UPDATE statement has no WHERE clause — unfiltered updates are not allowed.")
+        if "%s" not in sql:
+            errors.append("UPDATE statement is not parameterized — SET and WHERE values must use %s placeholders.")
+        placeholder_count = sql.count("%s")
+        if placeholder_count != len(params):
+            errors.append(
+                f"UPDATE has {placeholder_count} placeholder(s) but {len(params)} param(s) were provided."
+            )
+
+    if intent == "DELETE":
+        if not sql_upper.lstrip().startswith("DELETE"):
+            errors.append("Expected a DELETE statement but the generated SQL does not start with DELETE.")
+        if "WHERE" not in sql_upper:
+            errors.append("DELETE statement has no WHERE clause — unfiltered deletes are not allowed.")
+        if params and "%s" not in sql:
+            errors.append("DELETE statement is not parameterized — WHERE values must use %s placeholders.")
+        placeholder_count = sql.count("%s")
+        if placeholder_count != len(params):
+            errors.append(
+                f"DELETE has {placeholder_count} placeholder(s) but {len(params)} param(s) were provided."
+            )
+
     return errors
 
 
@@ -105,6 +131,22 @@ def _check_business_logic(plan: dict) -> list[str]:
 
     elif plan["intent"] == "SELECT":
         errors += _validate_select_filters(plan["filters"])
+
+    elif plan["intent"] == "UPDATE":
+        entity = plan["entity"]
+        updates = plan.get("updates", {})
+        if not updates:
+            errors.append("UPDATE has no fields to change — 'updates' is empty.")
+        elif entity == "students":
+            errors += _validate_student_update(updates)
+        elif entity == "instrument_inventory":
+            errors += _validate_instrument_inventory_update(updates)
+        elif entity == "music":
+            errors += _validate_music_update(updates)
+
+    elif plan["intent"] == "DELETE":
+        if not plan.get("filters"):
+            errors.append("DELETE has no filters — unfiltered deletes are not allowed.")
 
     return errors
 
@@ -173,6 +215,36 @@ def _validate_music(record: dict, label: str) -> list[str]:
     return errors
 
 
+# ── UPDATE field validators ────────────────────────────────────────────────────
+# These only validate fields that are actually present in the updates dict —
+# required-field checks are intentionally skipped (partial updates are valid).
+
+def _validate_student_update(updates: dict) -> list[str]:
+    errors: list[str] = []
+    grade = updates.get("grade")
+    if grade is not None and (not isinstance(grade, int) or not (9 <= grade <= 12)):
+        errors.append(f"grade must be an integer between 9 and 12 (got {grade!r}).")
+    return errors
+
+
+def _validate_instrument_inventory_update(updates: dict) -> list[str]:
+    errors: list[str] = []
+    condition = updates.get("condition")
+    if condition is not None and condition not in VALID_CONDITIONS:
+        errors.append(
+            f"condition '{condition}' is invalid. Must be one of: {', '.join(sorted(VALID_CONDITIONS))}."
+        )
+    return errors
+
+
+def _validate_music_update(updates: dict) -> list[str]:
+    errors: list[str] = []
+    difficulty = updates.get("difficulty")
+    if difficulty is not None and (not isinstance(difficulty, int) or not (1 <= difficulty <= 6)):
+        errors.append(f"difficulty must be an integer between 1 and 6 (got {difficulty!r}).")
+    return errors
+
+
 # ── Layer 3: Data Integrity ────────────────────────────────────────────────────
 
 def _check_data_integrity(plan: dict) -> list[str]:
@@ -182,17 +254,17 @@ def _check_data_integrity(plan: dict) -> list[str]:
     """
     errors: list[str] = []
 
-    if plan["intent"] != "INSERT":
-        return errors
+    if plan["intent"] == "INSERT":
+        entity = plan["entity"]
+        records = plan["records"]
+        if plan["is_batch"]:
+            errors += _check_batch_duplicates(entity, records)
+        if entity == "instrument_inventory":
+            errors += _check_instrument_names_exist([r.get("instrument_name") for r in records])
 
-    entity = plan["entity"]
-    records = plan["records"]
-
-    if plan["is_batch"]:
-        errors += _check_batch_duplicates(entity, records)
-
-    if entity == "instrument_inventory":
-        errors += _check_instrument_names_exist([r.get("instrument_name") for r in records])
+    elif plan["intent"] == "DELETE":
+        if plan["entity"] == "students":
+            errors += _check_no_active_checkouts(plan["filters"])
 
     return errors
 
@@ -256,85 +328,51 @@ def _check_instrument_names_exist(instrument_names: list[str]) -> list[str]:
     return errors
 
 
-# ── Standalone test ────────────────────────────────────────────────────────────
+def _check_no_active_checkouts(filters: dict) -> list[str]:
+    """Block deleting a student who currently has an instrument checked out.
 
-def test_validator():
-    """Test the validator against valid and invalid INSERT and SELECT scenarios."""
-    cases = [
-        (
-            "valid single student",
-            {"sql": "INSERT INTO students (first_name, last_name, grade) VALUES (%s, %s, %s)",
-             "params": ["Emma", "Rodriguez", 10], "batch_params": [], "is_batch": False},
-            {"intent": "INSERT", "entity": "students", "is_batch": False,
-             "records": [{"first_name": "Emma", "last_name": "Rodriguez", "grade": 10}],
-             "filters": {}, "requires_clarification": False, "clarification_question": None},
-        ),
-        (
-            "invalid grade",
-            {"sql": "INSERT INTO students (first_name, last_name, grade) VALUES (%s, %s, %s)",
-             "params": ["Tom", "Smith", 8], "batch_params": [], "is_batch": False},
-            {"intent": "INSERT", "entity": "students", "is_batch": False,
-             "records": [{"first_name": "Tom", "last_name": "Smith", "grade": 8}],
-             "filters": {}, "requires_clarification": False, "clarification_question": None},
-        ),
-        (
-            "batch with internal duplicate",
-            {"sql": "INSERT INTO students (first_name, last_name, grade) VALUES (%s, %s, %s)",
-             "params": [], "batch_params": [["Emma", "Rodriguez", 10], ["Emma", "Rodriguez", 11]],
-             "is_batch": True},
-            {"intent": "INSERT", "entity": "students", "is_batch": True,
-             "records": [{"first_name": "Emma", "last_name": "Rodriguez", "grade": 10},
-                         {"first_name": "Emma", "last_name": "Rodriguez", "grade": 11}],
-             "filters": {}, "requires_clarification": False, "clarification_question": None},
-        ),
-        (
-            "forbidden keyword",
-            {"sql": "DROP TABLE students; INSERT INTO students VALUES (%s)", "params": ["x"],
-             "batch_params": [], "is_batch": False},
-            {"intent": "INSERT", "entity": "students", "is_batch": False,
-             "records": [{"first_name": "x"}],
-             "filters": {}, "requires_clarification": False, "clarification_question": None},
-        ),
-        # SELECT cases
-        (
-            "valid SELECT all students",
-            {"sql": "SELECT * FROM students", "params": [], "batch_params": [], "is_batch": False},
-            {"intent": "SELECT", "entity": "students", "is_batch": False,
-             "records": [], "filters": {},
-             "requires_clarification": False, "clarification_question": None},
-        ),
-        (
-            "valid SELECT with grade filter",
-            {"sql": "SELECT * FROM students WHERE grade = %s", "params": [11],
-             "batch_params": [], "is_batch": False},
-            {"intent": "SELECT", "entity": "students", "is_batch": False,
-             "records": [], "filters": {"grade": 11},
-             "requires_clarification": False, "clarification_question": None},
-        ),
-        (
-            "invalid SELECT filter grade out of range",
-            {"sql": "SELECT * FROM students WHERE grade = %s", "params": [7],
-             "batch_params": [], "is_batch": False},
-            {"intent": "SELECT", "entity": "students", "is_batch": False,
-             "records": [], "filters": {"grade": 7},
-             "requires_clarification": False, "clarification_question": None},
-        ),
-        (
-            "invalid SELECT param count mismatch",
-            {"sql": "SELECT * FROM students WHERE grade = %s AND last_name = %s",
-             "params": [11], "batch_params": [], "is_batch": False},
-            {"intent": "SELECT", "entity": "students", "is_batch": False,
-             "records": [], "filters": {"grade": 11},
-             "requires_clarification": False, "clarification_question": None},
-        ),
-    ]
+    Resolves the student from the filters first, then checks checkout_history
+    for any row where return_date IS NULL.
+    """
+    errors: list[str] = []
 
-    for label, generated, plan in cases:
-        print(f"\n--- {label}")
-        result = validate(generated, plan)
-        status = "PASS" if result["is_valid"] else "FAIL"
-        print(f"    {status} — errors: {result['errors']}")
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Build a SELECT to find matching student_ids from the filters
+            if not filters:
+                return errors
 
+            where_clause = " AND ".join(f"{col} = %s" for col in filters)
+            params = list(filters.values())
+            cur.execute(
+                f"SELECT student_id, first_name, last_name FROM students WHERE {where_clause}",
+                params,
+            )
+            students = cur.fetchall()
 
-if __name__ == "__main__":
-    test_validator()
+            if not students:
+                return errors  # student doesn't exist; executor will just affect 0 rows
+
+            blocked = []
+            for student_id, first_name, last_name in students:
+                cur.execute(
+                    "SELECT 1 FROM checkout_history WHERE student_id = %s AND return_date IS NULL",
+                    (student_id,),
+                )
+                if cur.fetchone() is not None:
+                    blocked.append(f"{first_name} {last_name}")
+
+        conn.close()
+    except Exception as e:
+        errors.append(f"Could not verify checkout status before delete: {e}")
+        return errors
+
+    for name in blocked:
+        errors.append(
+            f"Cannot delete {name} — they currently have an instrument checked out. "
+            "Return the instrument first, then remove the student."
+        )
+
+    return errors
+

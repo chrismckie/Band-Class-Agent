@@ -42,16 +42,3 @@ def call_llm(system_prompt: str, user_message: str, max_tokens: int = MAX_TOKENS
         return response.content[0].text
     except Exception as e:
         raise RuntimeError(f"LLM call failed: {e}") from e
-
-
-def test_llm():
-    """Smoke test — sends a minimal message and prints the response."""
-    reply = call_llm(
-        system_prompt="You are a helpful assistant.",
-        user_message="Reply with exactly: LLM connection successful.",
-    )
-    print(reply)
-
-
-if __name__ == "__main__":
-    test_llm()

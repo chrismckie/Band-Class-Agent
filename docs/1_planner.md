@@ -1,24 +1,40 @@
-import json
-from .llm_client import call_llm
+# Planner
 
-# ── Planner ────────────────────────────────────────────────────────────────────
-# Receives raw user input and returns a structured plan dict that describes
-# what the user wants to do.  The Generator reads this plan to build SQL.
-#
-# Plan shape:
-# {
-#   "intent":                 "INSERT" | "SELECT" | "UPDATE" | "DELETE",
-#   "entity":                 "students" | "instrument_inventory" | "checkout_history"
-#                             | "music" | "plays" | "arranged_for",
-#   "is_batch":               bool,
-#   "records":                [{"field": value, ...}, ...],   # INSERT only
-#   "filters":                {"field": value, ...},          # SELECT only; {} means no filter (return all)
-#   "requires_clarification": bool,
-#   "clarification_question": str | None,
-# }
-# ──────────────────────────────────────────────────────────────────────────────
+![Planner Diagram](diagrams/planner.svg)
 
-_SYSTEM_PROMPT = """\
+The **Planner** is the first step in the system. It receives the raw natural language prompt from the band director as a string, and uses an LLM call to process the prompt for the following information:
+
+- Classify the user's intent:
+  - `INSERT`
+  - `SELECT`
+  - `UPDATE`
+  - `DELETE`
+- Identify the target table in the database
+- Extract all relevant fields and values
+
+The LLM organizes this data into a structured plan describing what the user wants to do. The plan is stored in a Python dictionary and has the following shape:
+
+``` Dictionary
+plan = {
+     "intent": "INSERT" | "SELECT" | "UPDATE" | "DELETE",
+     "entity": "students" | "instrument_inventory" | "checkout_history" | "music" | "plays" | "arranged_for",
+     "is_batch": bool,
+     "records": [{"field": value, ...}, ...],
+     "filters": {"field": value, ...},        # For SELECT, {} means no filter (return all)
+     "requires_clarification": bool,
+     "clarification_question": str | None
+}
+```
+
+For write operations (`INSERT` and `DELETE`), the `records` field is populated, and for queries (`SELECT`), the `filters` field is used. For updates (`UPDATE`), both fields are used. If LLM cannot determine the intent, `requires_clarification` is set to true, allowing a follow up instead of guessing.
+
+The `plan` is the central component of the entire system, as it represents the user's request in a structured form that all downstream components read from in some way. By isolating the natural language prompt into the first layer, the rest of the system can operate on structured data while minimizing hallucinations from the LLM.
+
+---
+
+## Planner System Prompt
+
+```System Prompt
 You are the Planner for a band inventory database agent. A band director will give
 you a natural language request. Your job is to analyze the request and return a
 structured JSON plan so the next stage can generate the correct SQL.
@@ -96,43 +112,43 @@ arranged_for:         music_id, instrument_name, parts_needed
 ─── OUTPUT FORMAT ──────────────────────────────────────────────────────────────
 
 {
-  "intent": "INSERT" | "SELECT" | "UPDATE" | "DELETE",
-  "entity": "<table_name>",
-  "is_batch": false,
-  "records": [],
-  "filters": {},
-  "updates": {},
-  "requires_clarification": false,
-  "clarification_question": null
-}\
-"""
+     "intent": "INSERT" | "SELECT" | "UPDATE" | "DELETE",
+     "entity": "<table_name>",
+     "is_batch": false,
+     "records": [],
+     "filters": {},
+     "updates": {},
+     "requires_clarification": false,
+     "clarification_question": null
+}
+```
 
+---
 
-def plan(user_input: str) -> dict:
-    """
-    Classify the user's intent and extract structured data from their request.
+## Planner Sample
 
-    Calls the LLM to parse natural language into a machine-readable plan.
-    Returns a plan dict (see shape above).
-    """
-    print(f"[Planner] received: {user_input!r}")
+**Input:**
 
-    raw = call_llm(system_prompt=_SYSTEM_PROMPT, user_message=user_input)
+```Text
+"Show me all grade 10 students who play trumpet"
+```
 
-    try:
-        result = json.loads(raw)
-    except json.JSONDecodeError:
-        return {
-            "intent": "unknown",
-            "entity": "",
-            "is_batch": False,
-            "records": [],
-            "filters": {},
-            "updates": {},
-            "requires_clarification": True,
-            "clarification_question": "I couldn't understand that request. Could you rephrase it?",
-        }
+**Output:**
 
-    print(f"[Planner] plan: {result}")
-    return result
+```json
+plan = {
+     "intent": "SELECT",
+     "entity": "students",
+     "is_batch": false,
+     "records": [],
+     "filters": {
+          "grade": 10,
+          "instrument_name": "trumpet"
+     },
+     "updates": {},
+     "requires_clarification": false,
+     "clarification_question": null
+}
+```
 
+---

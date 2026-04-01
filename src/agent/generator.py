@@ -61,6 +61,12 @@ def generate(plan: dict) -> dict:
     if plan["intent"] == "SELECT":
         return _generate_select(plan)
 
+    if plan["intent"] == "UPDATE":
+        return _generate_update(plan)
+
+    if plan["intent"] == "DELETE":
+        return _generate_delete(plan)
+
     raise NotImplementedError(f"Generator does not yet support intent: {plan['intent']!r}")
 
 
@@ -98,6 +104,49 @@ def _generate_insert(plan: dict) -> dict:
         "batch_params": [],
         "is_batch": False,
     }
+
+
+# ── UPDATE ─────────────────────────────────────────────────────────────────────
+
+def _generate_update(plan: dict) -> dict:
+    """
+    Build a parameterized UPDATE from the plan's updates (SET) and filters (WHERE).
+
+    Fully deterministic — no LLM needed because the Planner already extracted
+    exact column names and values for both clauses.
+    params order: SET values first, then WHERE values.
+    """
+    entity = plan["entity"]
+    updates = plan.get("updates", {})
+    filters = plan.get("filters", {})
+
+    set_clause = ", ".join(f"{col} = %s" for col in updates)
+    where_clause = " AND ".join(f"{col} = %s" for col in filters)
+    sql = f"UPDATE {entity} SET {set_clause} WHERE {where_clause}"
+    params = list(updates.values()) + list(filters.values())
+
+    print(f"[Generator] sql: {sql!r}, params: {params}")
+    return {"sql": sql, "params": params, "batch_params": [], "is_batch": False}
+
+
+# ── DELETE ─────────────────────────────────────────────────────────────────────
+
+def _generate_delete(plan: dict) -> dict:
+    """
+    Build a parameterized DELETE from the plan's filters (WHERE clause).
+
+    Fully deterministic — no LLM needed. Simpler than UPDATE since there
+    is no SET clause.
+    """
+    entity = plan["entity"]
+    filters = plan.get("filters", {})
+
+    where_clause = " AND ".join(f"{col} = %s" for col in filters)
+    sql = f"DELETE FROM {entity} WHERE {where_clause}"
+    params = list(filters.values())
+
+    print(f"[Generator] sql: {sql!r}, params: {params}")
+    return {"sql": sql, "params": params, "batch_params": [], "is_batch": False}
 
 
 # ── SELECT ─────────────────────────────────────────────────────────────────────
@@ -142,54 +191,3 @@ def _strip_markdown(text: str) -> str:
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
     return text.strip()
-
-
-# ── Standalone test ────────────────────────────────────────────────────────────
-
-def test_generator():
-    """Run the generator against INSERT and SELECT plans and print results."""
-    plans = [
-        ("single INSERT", {
-            "intent": "INSERT", "entity": "students", "is_batch": False,
-            "records": [{"first_name": "Emma", "last_name": "Rodriguez", "grade": 10}],
-            "filters": {}, "requires_clarification": False, "clarification_question": None,
-        }),
-        ("batch INSERT", {
-            "intent": "INSERT", "entity": "students", "is_batch": True,
-            "records": [
-                {"first_name": "Jake", "last_name": "Alvarez", "grade": 11},
-                {"first_name": "Maria", "last_name": "Chen", "grade": 9},
-            ],
-            "filters": {}, "requires_clarification": False, "clarification_question": None,
-        }),
-        ("SELECT all students", {
-            "intent": "SELECT", "entity": "students", "is_batch": False,
-            "records": [], "filters": {},
-            "requires_clarification": False, "clarification_question": None,
-        }),
-        ("SELECT by grade", {
-            "intent": "SELECT", "entity": "students", "is_batch": False,
-            "records": [], "filters": {"grade": 11},
-            "requires_clarification": False, "clarification_question": None,
-        }),
-        ("SELECT students who play clarinet", {
-            "intent": "SELECT", "entity": "students", "is_batch": False,
-            "records": [], "filters": {"instrument_name": "clarinet"},
-            "requires_clarification": False, "clarification_question": None,
-        }),
-        ("SELECT currently checked out", {
-            "intent": "SELECT", "entity": "checkout_history", "is_batch": False,
-            "records": [], "filters": {"checked_out": True},
-            "requires_clarification": False, "clarification_question": None,
-        }),
-    ]
-
-    for label, p in plans:
-        print(f"\n--- {label}")
-        result = generate(p)
-        print(f"    sql:    {result['sql']}")
-        print(f"    params: {result['params']}")
-
-
-if __name__ == "__main__":
-    test_generator()

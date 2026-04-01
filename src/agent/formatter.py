@@ -36,6 +36,25 @@ Present the data clearly and concisely. Guidelines:
 - If results were capped, mention how many total were found.\
 """
 
+_UPDATE_SYSTEM_PROMPT = """\
+You are a friendly assistant for a high school band director. The director just
+updated data in their inventory system. Confirm what was changed in 1-2 sentences.
+
+Use plain English — no SQL, no technical terms, no mention of "tables" or
+"databases". Use the terms the director used: students, instruments, music, etc.
+Include what was changed, what it was changed to, and how many records were
+affected where available.\
+"""
+
+_DELETE_SYSTEM_PROMPT = """\
+You are a friendly assistant for a high school band director. The director just
+removed data from their inventory system. Confirm what was deleted in 1-2 sentences.
+
+Use plain English — no SQL, no technical terms, no mention of "tables" or
+"databases". Use the terms the director used: students, instruments, music, etc.
+Include what was removed and how many records were affected where available.\
+"""
+
 _ERROR_SYSTEM_PROMPT = """\
 You are a friendly assistant for a high school band director. Their request could
 not be completed. Explain what went wrong in 1-2 sentences using plain English.
@@ -67,6 +86,10 @@ def _format_success(result: dict) -> str:
     intent = result["plan"]["intent"]
     if intent == "SELECT":
         return _format_select_success(result)
+    if intent == "UPDATE":
+        return _format_update_success(result)
+    if intent == "DELETE":
+        return _format_delete_success(result)
     return _format_insert_success(result)
 
 
@@ -106,6 +129,37 @@ def _format_select_success(result: dict) -> str:
     )
 
 
+def _format_update_success(result: dict) -> str:
+    plan = result["plan"]
+    context = {
+        "original_request": result["user_input"],
+        "operation": "UPDATE",
+        "entity": plan["entity"],
+        "updates": plan.get("updates", {}),
+        "filters": plan.get("filters", {}),
+        "rows_affected": result["rows_affected"],
+    }
+    return call_llm(
+        system_prompt=_UPDATE_SYSTEM_PROMPT,
+        user_message=json.dumps(context),
+    )
+
+
+def _format_delete_success(result: dict) -> str:
+    plan = result["plan"]
+    context = {
+        "original_request": result["user_input"],
+        "operation": "DELETE",
+        "entity": plan["entity"],
+        "filters": plan.get("filters", {}),
+        "rows_affected": result["rows_affected"],
+    }
+    return call_llm(
+        system_prompt=_DELETE_SYSTEM_PROMPT,
+        user_message=json.dumps(context),
+    )
+
+
 # ── Failure ────────────────────────────────────────────────────────────────────
 
 def _format_failure(result: dict) -> str:
@@ -121,58 +175,3 @@ def _format_failure(result: dict) -> str:
         user_message=json.dumps(context),
     )
 
-
-# ── Standalone test ────────────────────────────────────────────────────────────
-
-def test_formatter():
-    """Test the formatter against INSERT success, SELECT success, and failure shapes."""
-    insert_plan = {
-        "intent": "INSERT", "entity": "students", "is_batch": False,
-        "records": [{"first_name": "Emma", "last_name": "Rodriguez", "grade": 10}],
-        "filters": {}, "requires_clarification": False, "clarification_question": None,
-    }
-    select_plan = {
-        "intent": "SELECT", "entity": "students", "is_batch": False,
-        "records": [], "filters": {"grade": 11},
-        "requires_clarification": False, "clarification_question": None,
-    }
-
-    cases = [
-        (
-            "INSERT success",
-            {"success": True, "rows_affected": 1, "results": [], "error": None,
-             "plan": insert_plan,
-             "user_input": "Add Emma Rodriguez, a 10th grader, to the student list."},
-        ),
-        (
-            "SELECT with results",
-            {"success": True, "rows_affected": 0, "error": None,
-             "results": [
-                 {"student_id": 1, "first_name": "Jake", "last_name": "Alvarez", "grade": 11},
-                 {"student_id": 2, "first_name": "Maria", "last_name": "Chen", "grade": 11},
-             ],
-             "plan": select_plan,
-             "user_input": "Which students are in grade 11?"},
-        ),
-        (
-            "SELECT with no results",
-            {"success": True, "rows_affected": 0, "results": [], "error": None,
-             "plan": select_plan,
-             "user_input": "Which students are in grade 11?"},
-        ),
-        (
-            "validation failure",
-            {"success": False, "rows_affected": 0, "results": [],
-             "error": "Record 1: grade must be an integer between 9 and 12 (got 8).",
-             "plan": insert_plan,
-             "user_input": "Add Tom Smith, an 8th grader, to the student list."},
-        ),
-    ]
-
-    for label, result in cases:
-        print(f"\n--- {label}")
-        print(format_response(result))
-
-
-if __name__ == "__main__":
-    test_formatter()
