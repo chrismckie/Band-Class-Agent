@@ -6,7 +6,7 @@ Most people think that the job of a band director is to teach students how to pl
 - Selecting performance music based on student skills and instrumentation
 - Financial and logistic planning for performances
 
-The administrative role of a band director is incredibly time consuming, and often more time is spent on this than actually teaching. In addition, most band directors do not have the technical knowledge to automate these tasks, so they are often done manually and tracked in spreadsheets, where redundancy and data integrity problems can arise. 
+The administrative role of a band director is incredibly time consuming, and often more time is spent on this than actually teaching. In addition, most band directors do not have the technical knowledge to automate these tasks, so they are often done manually and tracked in spreadsheets, where redundancy and data integrity problems can arise.
 
 The goal of this project is to create an agent that helps band directors manage their instrument inventory, music selection, and ensemble planning. The band director simply tells the agent what to do through natural language, and the agent handles the task, with no technical or programming knowledge needed.
 

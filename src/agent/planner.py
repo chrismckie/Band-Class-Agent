@@ -42,6 +42,8 @@ checkout_history:     checkout_id, student_id, serial_number, checkout_date, ret
 music:                music_id, title, composer, difficulty (1-6)
 plays:                student_id, instrument_name  (which student plays which instrument)
 arranged_for:         music_id, instrument_name, parts_needed
+instruments:          instrument_name, family_id  (reference table linking instruments to families)
+instrument_family:    family_id, family_name  (e.g. Woodwinds, Brass, Strings, Percussion)
 
 ─── INSERT RULES ───────────────────────────────────────────────────────────────
 
@@ -123,6 +125,7 @@ def plan(user_input: str) -> dict:
     print(f"[Planner] received: {user_input!r}")
 
     raw = call_llm(system_prompt=_SYSTEM_PROMPT, user_message=user_input)
+    raw = _strip_markdown(raw)
 
     try:
         result = json.loads(raw)
@@ -140,4 +143,13 @@ def plan(user_input: str) -> dict:
 
     print(f"[Planner] plan: {result}")
     return result
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove ```json ... ``` fences if the LLM wrapped its response in them."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+    return text.strip()
 

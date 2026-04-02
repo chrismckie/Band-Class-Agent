@@ -40,7 +40,11 @@ instrument_family(family_id PK, family_name)
 3. Special filter "checked_out": true → WHERE ch.return_date IS NULL (no %s needed).
 4. Empty filters dict → no WHERE clause; return all rows from the entity table.
 5. SELECT the most useful columns for the query — avoid SELECT * on joined queries.
-6. Return ONLY valid JSON, no markdown, no explanation:
+6. For text/string filter values, use ILIKE with a wildcard pattern so comparisons
+   are case-insensitive and handle partial matches (e.g. WHERE p.instrument_name
+   ILIKE %s and pass the param as '%value%'). Use = only for numeric filters
+   (grade, difficulty, parts_needed, etc.).
+7. Return ONLY valid JSON, no markdown, no explanation:
    {"sql": "SELECT ...", "params": [value, ...]}\
 """
 
