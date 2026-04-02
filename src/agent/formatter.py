@@ -12,7 +12,7 @@ from .llm_client import call_llm
 
 # Maximum rows passed to the LLM for SELECT responses; avoids token bloat on
 # large result sets while still giving the model enough data to summarize.
-_MAX_DISPLAY_ROWS = 25
+_MAX_DISPLAY_ROWS = 60
 
 _INSERT_SYSTEM_PROMPT = """\
 You are a friendly assistant for a high school band director. The director just

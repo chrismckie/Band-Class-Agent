@@ -7,7 +7,7 @@ The **Formatter** is the final stage of the system. It receives both the plan an
 If the execution is successful, the Formatter follows a system prompt based on the intent from the plan:
 
 - `INSERT` confirmations are kept at 1-2 sentences
-- `SELECT` results are summarized with a cap of 25 rows
+- `SELECT` results are summarized with a cap of 60 rows
 - `UPDATE` and `DELETE` responses include how many records were affected
 
 If the execution fails, it uses an error prompt instructing the LLM to explain what went wrong in natural language, with no SQL or database terminology.

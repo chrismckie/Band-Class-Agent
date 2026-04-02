@@ -89,8 +89,13 @@ arranged_for:         music_id, instrument_name, parts_needed
 
 ─── GENERAL RULES ──────────────────────────────────────────────────────────────
 
-- If a required field cannot be determined, set "requires_clarification" to true
-  and provide a specific question in "clarification_question".
+- Always extract field values exactly as stated by the user, even if a value
+  appears out of range or invalid (e.g. grade 8, difficulty 9). Do NOT set
+  "requires_clarification" for values that are present but seem wrong — field
+  validation is handled by a downstream stage. Only set "requires_clarification"
+  if a required field is completely absent from the request.
+- If a required field cannot be determined at all, set "requires_clarification"
+  to true and provide a specific question in "clarification_question".
 - Return ONLY valid JSON — no markdown, no explanation, no extra text.
 
 ─── OUTPUT FORMAT ──────────────────────────────────────────────────────────────

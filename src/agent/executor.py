@@ -33,7 +33,7 @@ def execute(generated: dict) -> dict:
         with conn.cursor() as cur:
             if is_select:
                 results = _execute_select(cur, sql, generated["params"])
-                print(f"[Executor] success — {len(results)} row(s) returned")
+                print(f"[Executor] success: {len(results)} row(s) returned")
                 return {
                     "success": True,
                     "rows_affected": 0,
@@ -46,7 +46,7 @@ def execute(generated: dict) -> dict:
                 rows_affected = _execute_single(cur, sql, generated["params"])
 
         conn.commit()
-        print(f"[Executor] success — rows affected: {rows_affected}")
+        print(f"[Executor] success: rows affected: {rows_affected}")
         return {
             "success": True,
             "rows_affected": rows_affected,
@@ -55,7 +55,7 @@ def execute(generated: dict) -> dict:
         }
     except Exception as e:
         conn.rollback()
-        print(f"[Executor] error — rolling back: {e}")
+        print(f"[Executor] error. Rolling back: {e}")
         return {
             "success": False,
             "rows_affected": 0,

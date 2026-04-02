@@ -9,10 +9,10 @@ MAX_TOKENS = 1024
 
 
 def get_client():
-    """Return an Anthropic client using ANTHROPIC_API_KEY from .env."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    """Return an Anthropic client using LLM_API_KEY from .env."""
+    api_key = os.getenv("LLM_API_KEY")
     if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY is not set in .env")
+        raise ValueError("LLM_API_KEY is not set in .env")
     return anthropic.Anthropic(api_key=api_key)
 
 
